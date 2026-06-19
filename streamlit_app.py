@@ -1,35 +1,28 @@
 import streamlit as st
+import requests
 import pandas as pd
 
-# Mock data based on your screenshot
-data = {
-    "Manager": ["Alexis", "Dean", "Ray", "Jenna", "Chris"],
-    "Total": [-3, -1, 0, 2, 5],
-    "Roster": [
-        ["Hatton (+4 F)", "Lowry (+4 Thru 13)", "Fitzpatrick (-3 Thru 14)", "Matsuyama (+2 Thru 14)", "Rahm (-2 Thru 12)"],
-        ["Burns (+1 F)", "Scheffler (+2 F)", "Clark (-4 Thru 13)", "Bhatia (+2 Thru 13)", "Bridgeman (+3 F)"],
-        ["Åberg (-1 F)", "McIlroy (-1 F)", "Koepka (+3 F)", "Morikawa (+2 Thru 14)", "Cantlay (+4 Thru 12)"],
-        ["Young (+2 F)", "Spaun (+7 F)", "Rose (+3 Thru 12)", "DeChambeau (-2 Thru 14)", "Henley (+2 Thru 13)"],
-        ["Gotterup (+5 F)", "Fleetwood (E F)", "Scott (+3 F)", "Kim (+7 F)", "Schauffele (+2 Thru 14)"],
-    ],
-}
-
-df = pd.DataFrame(data)
-
-st.title("⛳ Live Major Pool Leaderboard")
-
-if st.button("Refresh Data"):
-    st.rerun()
-
-# Display main leaderboard table
-st.subheader("Current Standings")
-# We only show Manager and Total in the main, clean table
-st.table(df[["Manager", "Total"]].sort_values("Total"))
-
-# Use an expander for each manager to view their roster cleanly
-st.subheader("Roster Details")
-for index, row in df.iterrows():
-    with st.expander(f"{row['Manager']} (Score: {row['Total']})"):
-        # Display roster as a nice bulleted list
-        for player in row['Roster']:
-            st.write(f"- {player}")
+# This decorator forces a refresh every 60 seconds
+@st.cache_data(ttl=60)
+def get_data():
+    url = "https://site.api.espn.com/apis/site/v2/sports/golf/leaderboard"
+    # The 'params' argument helps prevent the server from sending cached responses
+    response = requests.get(url, params={"timestamp": pd.Timestamp.now().timestamp()}).json()
+    entries = response['events'][0]['competitions'][0]['competitors']
+    
+    live_map = {}
+    for c in entries:
+        name = c['athlete']['displayName']
+        stats = c.get('statistics', [])
+        score_val, display = None, "NS"
+        for s in stats:
+            if s.get('name') == 'scoreToPar':
+                val_str = s.get('displayValue')
+                if val_str in ['E', 'EVEN']: score_val, display = 0, 'E'
+                elif val_str and val_str not in ['-', '--']:
+                    score_val = int(val_str.replace('+', ''))
+                    display = val_str
+                break
+        thru = c.get('status', {}).get('displayValue', '')
+        live_map[name] = {"val": score_val, "disp": display, "thru": thru}
+    return live_map
